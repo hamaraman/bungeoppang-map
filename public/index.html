@@ -78,6 +78,32 @@
   #d-info { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; margin: 0 0 20px; font-size: 16px; }
   #d-info dt { color: #475569; }
   #d-info dd { margin: 0; }
+  #d-rating { color: #78350F; font-weight: 700; margin: -8px 0 12px; }
+  .sheet { overflow-y: auto; }
+  .sheet h3 { font-size: 17px; margin: 24px 0 10px; }
+  .sheet .small { min-height: 44px; padding: 0 16px; font-size: 15px; box-shadow: none; border: 1px solid #CBD5E1; }
+  .linkish { min-height: 44px; min-width: 44px; padding: 0 8px; border: 0; background: none; color: #475569; font: inherit; font-size: 14px; text-decoration: underline; cursor: pointer; }
+  #d-photos { display: flex; gap: 8px; overflow-x: auto; margin-bottom: 10px; }
+  #d-photos:empty { display: none; }
+  #d-photos button { flex: none; padding: 0; border: 0; border-radius: 10px; overflow: hidden; cursor: pointer; background: #F1F5F9; }
+  #d-photos img { display: block; width: 96px; height: 96px; object-fit: cover; }
+  .stars { display: inline-flex; flex-direction: row-reverse; justify-content: flex-end; border: 0; padding: 0; margin: 0 0 8px; }
+  .stars input { position: absolute; opacity: 0; }
+  .stars label { font-size: 32px; line-height: 44px; width: 44px; text-align: center; color: #CBD5E1; cursor: pointer; margin: 0 !important; }
+  .stars input:checked ~ label, .stars label:hover, .stars label:hover ~ label { color: #F59E0B; }
+  .stars input:focus-visible + label { outline: 3px solid var(--color-ring); outline-offset: -4px; border-radius: 8px; }
+  #review-form .row { display: flex; gap: 8px; }
+  #review-form .row input { flex: 1; }
+  #d-reviews { list-style: none; padding: 0; margin: 12px 0 0; }
+  #d-reviews li { padding: 10px 0; border-top: 1px solid #E2E8F0; font-size: 15px; }
+  #d-reviews .meta { display: flex; align-items: center; justify-content: space-between; color: #475569; font-size: 14px; }
+  #d-reviews .score { color: #F59E0B; letter-spacing: 1px; }
+  #d-reviews p { margin: 2px 0 0; overflow-wrap: anywhere; }
+  #photo-view { padding: 0; border: 0; background: #000; max-width: 100vw; max-height: 100dvh; }
+  #photo-view::backdrop { background: rgb(0 0 0 / .85); }
+  #photo-view img { display: block; max-width: 100vw; max-height: calc(100dvh - 60px); }
+  #photo-view .bar { display: flex; justify-content: space-between; padding: 8px; }
+  #photo-view .bar button { color: #fff; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
@@ -158,12 +184,46 @@
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
   </div>
+  <p id="d-rating" hidden></p>
   <p id="d-status" class="hint"></p>
   <dl id="d-info"></dl>
   <p id="d-error" class="error" role="alert" hidden></p>
   <div class="actions">
     <button class="btn ghost" type="button" data-report="gone">없어졌어요</button>
     <button class="btn" type="button" data-report="exists">아직 있어요</button>
+  </div>
+
+  <h3>사진</h3>
+  <div id="d-photos"></div>
+  <button class="btn ghost small" type="button" id="photo-add">사진 추가</button>
+  <input type="file" id="photo-input" accept="image/*" hidden>
+  <p id="photo-error" class="error" role="alert" hidden></p>
+
+  <h3>리뷰</h3>
+  <form id="review-form" novalidate>
+    <fieldset class="stars">
+      <legend class="hint">별점을 골라 주세요</legend>
+      <input type="radio" name="rating" value="5" id="r5"><label for="r5" aria-label="5점">★</label>
+      <input type="radio" name="rating" value="4" id="r4"><label for="r4" aria-label="4점">★</label>
+      <input type="radio" name="rating" value="3" id="r3"><label for="r3" aria-label="3점">★</label>
+      <input type="radio" name="rating" value="2" id="r2"><label for="r2" aria-label="2점">★</label>
+      <input type="radio" name="rating" value="1" id="r1"><label for="r1" aria-label="1점">★</label>
+    </fieldset>
+    <div class="row">
+      <label for="review-body" class="hint" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">한 줄 후기</label>
+      <input type="text" id="review-body" name="body" maxlength="100" placeholder="한 줄 후기 (선택, 100자)" autocomplete="off">
+      <button class="btn small" type="submit" id="review-submit">등록</button>
+    </div>
+  </form>
+  <p id="review-error" class="error" role="alert" hidden></p>
+  <ul id="d-reviews"></ul>
+</dialog>
+
+<dialog id="photo-view" aria-label="사진 크게 보기">
+  <img id="photo-big" alt="노점 사진">
+  <div class="bar">
+    <button class="linkish" type="button" id="photo-flag">부적절한 사진 신고</button>
+    <button class="linkish" type="button" id="photo-close">닫기</button>
   </div>
 </dialog>
 
@@ -222,7 +282,7 @@
   const PIN = (gone) => `<svg width="36" height="44" viewBox="0 0 36 44" style="opacity:${gone ? .4 : 1}" aria-hidden="true">
     <path d="M18 43S3 27 3 17a15 15 0 0 1 30 0c0 10-15 26-15 26z" fill="#B45309" stroke="#fff" stroke-width="2"/>
     <ellipse cx="17" cy="17" rx="8" ry="5" fill="#FCD34D"/><path d="M25 17l4-4v8z" fill="#FCD34D"/><circle cx="13" cy="16" r="1.2" fill="#78350F"/></svg>`;
-  const COLS = 'id,lat,lng,name,menus,price,hours,payment,last_report,last_report_at';
+  const COLS = 'id,lat,lng,name,menus,price,hours,payment,last_report,last_report_at,rating_sum,review_count';
   const stands = new Map(); // id → { data, marker }
 
   function upsertStand(s) {
@@ -364,6 +424,9 @@
     status.textContent = !s.last_report ? '아직 제보가 없어요'
       : `${timeAgo(s.last_report_at)} "${s.last_report === 'gone' ? '없어졌어요' : '아직 있어요'}" 제보`;
     status.className = 'hint' + (s.last_report === 'gone' ? ' gone' : '');
+    const rating = $('d-rating');
+    rating.hidden = !s.review_count;
+    if (s.review_count) rating.textContent = `★ ${(s.rating_sum / s.review_count).toFixed(1)} (리뷰 ${s.review_count}개)`;
     const rows = [
       ['메뉴', s.menus.join(', ')],
       ['가격', s.price == null ? '' : `${s.price.toLocaleString()}원`],
@@ -379,13 +442,143 @@
 
   function openDetail(id) {
     openId = id;
-    dError.hidden = true;
+    for (const el of [dError, $('photo-error'), $('review-error')]) el.hidden = true;
+    $('review-form').reset();
     renderDetail();
+    loadExtras(id);
     if (!detail.open) detail.showModal();
   }
 
+  // 사진·리뷰 ---------------------------------------------------------
+  const photoUrl = (path) => `${SUPABASE_URL}/storage/v1/object/public/photos/${path}`;
+  let viewing = null; // 크게 보는 사진 id
+
+  async function loadExtras(id) {
+    const [photos, reviews] = await Promise.all([
+      api(`photos?select=id,path&stand_id=eq.${id}&order=created_at.desc&limit=20`),
+      api(`reviews?select=id,rating,body,created_at&stand_id=eq.${id}&order=created_at.desc&limit=20`),
+    ]).catch(() => [[], []]);
+    if (openId !== id) return; // 그새 다른 노점을 열었으면 버림
+    $('d-photos').replaceChildren(...photos.map(photoThumb));
+    $('d-reviews').replaceChildren(...reviews.map(reviewItem));
+  }
+
+  function photoThumb(p) {
+    const b = document.createElement('button'), img = document.createElement('img');
+    b.type = 'button';
+    b.setAttribute('aria-label', '사진 크게 보기');
+    img.src = photoUrl(p.path);
+    img.alt = '';
+    img.loading = 'lazy';
+    img.onerror = () => b.remove(); // 업로드가 중간에 실패한 사진
+    b.append(img);
+    b.addEventListener('click', () => { viewing = p.id; $('photo-big').src = img.src; $('photo-view').showModal(); });
+    return b;
+  }
+
+  function reviewItem(r) {
+    const li = document.createElement('li'), meta = document.createElement('div'), left = document.createElement('span'),
+      score = document.createElement('span'), when = document.createElement('span'), flag = document.createElement('button');
+    meta.className = 'meta';
+    score.className = 'score';
+    score.textContent = '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+    score.setAttribute('aria-label', `${r.rating}점`);
+    when.textContent = ` · ${timeAgo(r.created_at)}`;
+    flag.className = 'linkish';
+    flag.type = 'button';
+    flag.textContent = '신고';
+    flag.addEventListener('click', () => sendFlag('review', r.id, () => li.remove()));
+    left.append(score, when);
+    meta.append(left, flag);
+    li.append(meta);
+    if (r.body) { const p = document.createElement('p'); p.textContent = r.body; li.append(p); }
+    return li;
+  }
+
+  async function sendFlag(target, id, onDone) {
+    if (!confirm('이 내용을 신고할까요? 신고가 3번 쌓이면 숨겨져요.')) return;
+    try {
+      await api('flags', { method: 'POST', body: JSON.stringify({ target, target_id: id }) });
+      onDone();
+      showToast('신고했어요');
+    } catch (e) {
+      showToast(e.message.includes('duplicate') ? '이미 신고했어요' : e.message.includes('20번') ? e.message : '신고하지 못했어요');
+    }
+  }
+
+  $('photo-close').addEventListener('click', () => $('photo-view').close());
+  $('photo-flag').addEventListener('click', () => sendFlag('photo', viewing, () => {
+    $('photo-view').close();
+    [...$('d-photos').children].find((b) => b.querySelector('img').src === $('photo-big').src)?.remove();
+  }));
+
+  // 사진은 브라우저에서 1280px JPEG로 줄여서 올림 (다시 그리면서 위치정보 등 EXIF도 지워짐)
+  async function toJpeg(file) {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    return new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', 0.8));
+  }
+
+  $('photo-add').addEventListener('click', () => $('photo-input').click());
+  $('photo-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0], add = $('photo-add'), err = $('photo-error'), id = openId;
+    e.target.value = '';
+    if (!file) return;
+    err.hidden = true;
+    add.disabled = true;
+    add.textContent = '올리는 중...';
+    try {
+      const blob = await toJpeg(file).catch(() => { throw new Error('이 사진 형식은 올릴 수 없어요'); });
+      const [p] = await api('photos?select=id,path', {
+        method: 'POST', body: JSON.stringify({ stand_id: id }), headers: { Prefer: 'return=representation' },
+      });
+      const res = await fetch(`${SUPABASE_URL}/storage/v1/object/photos/${p.path}`, {
+        method: 'POST', headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'image/jpeg' }, body: blob,
+      });
+      if (!res.ok) throw new Error('사진을 올리지 못했어요');
+      if (openId === id) $('d-photos').prepend(photoThumb(p));
+      showToast('사진을 올렸어요!');
+    } catch (e) {
+      err.textContent = e.message.includes('10장') || e.message.includes('형식') || e.message.includes('사진을') ? e.message : '사진을 올리지 못했어요';
+      err.hidden = false;
+    } finally {
+      add.disabled = false;
+      add.textContent = '사진 추가';
+    }
+  });
+
+  $('review-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target), err = $('review-error'), submit = $('review-submit'), id = openId;
+    const rating = Number(fd.get('rating'));
+    if (!rating) { err.textContent = '별점을 골라 주세요'; err.hidden = false; return; }
+    err.hidden = true;
+    submit.disabled = true;
+    try {
+      const [r] = await api('reviews?select=id,rating,body,created_at', {
+        method: 'POST', body: JSON.stringify({ stand_id: id, rating, body: fd.get('body').trim() || null }),
+        headers: { Prefer: 'return=representation' },
+      });
+      const s = stands.get(id).data;
+      upsertStand({ ...s, rating_sum: s.rating_sum + rating, review_count: s.review_count + 1 });
+      if (openId === id) { renderDetail(); $('d-reviews').prepend(reviewItem(r)); }
+      e.target.reset();
+      showToast('리뷰 고마워요!');
+    } catch (e) {
+      err.textContent = e.message.includes('duplicate') ? '이 노점에는 오늘 이미 리뷰를 썼어요'
+        : e.message.includes('10개') ? e.message : '리뷰를 등록하지 못했어요';
+      err.hidden = false;
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
   $('d-close').addEventListener('click', () => detail.close());
-  for (const d of [sheet, detail]) d.addEventListener('click', (e) => e.target === d && d.close()); // 바깥 누르면 닫기
+  for (const d of [sheet, detail, $('photo-view')]) d.addEventListener('click', (e) => e.target === d && d.close()); // 바깥 누르면 닫기
 
   detail.querySelectorAll('[data-report]').forEach((b) => b.addEventListener('click', async () => {
     const type = b.dataset.report;

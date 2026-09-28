@@ -1,5 +1,7 @@
 # 🐟 붕어빵 지도
 
+**https://bungeoppang.pages.dev**
+
 내 주변 붕어빵 노점을 지도에서 찾고, 누구나 등록하고 제보하는 공개 서비스.
 
 ## 핵심 기능 (MVP)
@@ -53,7 +55,7 @@ reports: id, stand_id, type('exists'|'gone'), ip, created_at
 - [x] 3. 화면 범위 안의 노점을 핀으로 표시
 - [x] 4. 등록 폼
 - [x] 5. 상세 보기와 제보 버튼
-- [ ] 6. 배포
+- [x] 6. 배포 (Cloudflare Pages + GitHub 연결)
 
 ## 일단 뺀 것
 
@@ -79,7 +81,8 @@ reports: id, stand_id, type('exists'|'gone'), ip, created_at
 ## 실행 / 배포
 
 ```bash
-python -m http.server 8000 -d public          # 로컬: http://localhost:8000
-npx wrangler pages deploy public --project-name bungeoppang-map   # 배포
+python -m http.server 8000 -d public   # 로컬: http://localhost:8000
 ```
-배포 주소를 네이버 클라우드 콘솔 Maps Application의 Web 서비스 URL에 추가해야 지도가 뜬다.
+
+`main`에 push하면 Cloudflare Pages가 `public/`을 자동 배포한다 (빌드 없음). PR마다 미리보기 주소도 생긴다.
+새 도메인을 붙이면 네이버 클라우드 콘솔 Maps Application의 Web 서비스 URL에 추가해야 지도가 뜬다.

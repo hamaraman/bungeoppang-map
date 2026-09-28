@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>붕어빵 지도</title>
+<style>
+  :root {
+    --color-primary: #B45309;      /* 붕어빵 갈색 */
+    --color-on-primary: #FFFFFF;
+    --color-card: #FFFFFF;
+    --color-foreground: #0F172A;
+    --color-ring: #2563EB;
+    --color-destructive: #DC2626;
+  }
+  [hidden] { display: none !important; } /* display를 지정한 요소·SVG에도 hidden이 먹도록 */
+  html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  /* 네이버 SDK가 컨테이너에 position:relative를 덮어써서 inset 대신 크기를 직접 지정 */
+  #map { width: 100%; height: 100%; }
+  #locate, #toast { z-index: 1000; }
+  #locate {
+    position: fixed; right: 16px; bottom: calc(24px + env(safe-area-inset-bottom));
+    width: 52px; height: 52px; border: 0; border-radius: 50%;
+    background: var(--color-card); color: var(--color-primary);
+    box-shadow: 0 2px 8px rgb(0 0 0 / .25); cursor: pointer;
+    display: grid; place-items: center; transition: transform .2s;
+  }
+  #locate:active { transform: scale(.94); }
+  #locate:focus-visible { outline: 3px solid var(--color-ring); outline-offset: 2px; }
+  #locate[aria-busy="true"] svg { animation: spin 1s linear infinite; }
+  #toast {
+    position: fixed; left: 16px; right: 16px; top: calc(16px + env(safe-area-inset-top));
+    padding: 12px 16px; border-radius: 12px; background: var(--color-foreground); color: #fff;
+    font-size: 15px; text-align: center;
+  }
+  #add, #pickbar { z-index: 1000; position: fixed; left: 16px; bottom: calc(24px + env(safe-area-inset-bottom)); }
+  .btn {
+    min-height: 52px; padding: 0 20px; border: 0; border-radius: 26px; font: inherit; font-size: 16px; font-weight: 700;
+    background: var(--color-primary); color: var(--color-on-primary); cursor: pointer;
+    box-shadow: 0 2px 8px rgb(0 0 0 / .25); transition: transform .2s, opacity .2s;
+  }
+  .btn.ghost { background: var(--color-card); color: var(--color-foreground); }
+  .btn:active { transform: scale(.96); }
+  .btn:disabled { opacity: .6; cursor: default; }
+  .btn:focus-visible, .sheet :focus-visible { outline: 3px solid var(--color-ring); outline-offset: 2px; }
+  #pickbar { right: 84px; display: flex; gap: 8px; }
+  #pickbar .btn { flex: 1; }
+  #crosshair { position: fixed; left: 50%; top: 50%; transform: translate(-18px, -43px); z-index: 1000; pointer-events: none; }
+
+  .sheet {
+    width: 100%; max-width: 480px; max-height: 90dvh; margin: auto auto 0; padding: 20px 16px calc(16px + env(safe-area-inset-bottom));
+    border: 0; border-radius: 20px 20px 0 0; box-sizing: border-box; color: var(--color-foreground);
+  }
+  .sheet::backdrop { background: rgb(0 0 0 / .4); }
+  .sheet h2 { margin: 0 0 16px; font-size: 20px; }
+  .sheet label, .sheet legend { display: block; font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  .sheet fieldset { border: 0; padding: 0; margin: 0 0 16px; }
+  .sheet .field { margin-bottom: 16px; }
+  .sheet .hint { font-weight: 400; color: #475569; font-size: 14px; }
+  .sheet input[type=text], .sheet input[type=number] {
+    width: 100%; box-sizing: border-box; min-height: 48px; padding: 0 12px; font: inherit; font-size: 16px;
+    border: 1px solid #CBD5E1; border-radius: 10px;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chips label { margin: 0; font-weight: 500; }
+  .chips input { position: absolute; opacity: 0; }
+  .chips span { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border: 1px solid #CBD5E1; border-radius: 22px; cursor: pointer; }
+  .chips input:checked + span { background: #FEF3C7; border-color: var(--color-primary); color: #78350F; font-weight: 700; }
+  .chips input:focus-visible + span { outline: 3px solid var(--color-ring); outline-offset: 2px; }
+  .error { color: var(--color-destructive); font-size: 15px; margin: 0 0 12px; }
+  .sheet .actions { display: flex; gap: 8px; }
+  .sheet .actions .btn { flex: 1; box-shadow: none; }
+  .sheet .actions .ghost { border: 1px solid #CBD5E1; }
+  .sheet .head { display: flex; align-items: start; justify-content: space-between; gap: 8px; }
+  .sheet .close { flex: none; width: 44px; height: 44px; margin: -10px -8px 0 0; border: 0; background: none; color: #475569; cursor: pointer; }
+  #d-status { margin: -8px 0 16px; }
+  #d-status.gone { color: var(--color-destructive); font-weight: 600; }
+  #d-info { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; margin: 0 0 20px; font-size: 16px; }
+  #d-info dt { color: #475569; }
+  #d-info dd { margin: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div id="map" role="application" aria-label="붕어빵 노점 지도"></div>
+
+<button id="locate" type="button" aria-label="내 위치로 이동">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+  </svg>
+</button>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+
+<button id="add" class="btn" type="button">+ 노점 등록</button>
+
+<!-- 위치 고르기 모드: 지도를 움직여 가운데 핀을 노점 위치에 맞춤 -->
+<svg id="crosshair" width="36" height="44" viewBox="0 0 36 44" aria-hidden="true" hidden>
+  <path d="M18 43S3 27 3 17a15 15 0 0 1 30 0c0 10-15 26-15 26z" fill="#B45309" stroke="#fff" stroke-width="2"/>
+  <circle cx="18" cy="17" r="5" fill="#fff"/>
+</svg>
+<div id="pickbar" hidden>
+  <button id="pick-cancel" class="btn ghost" type="button">취소</button>
+  <button id="pick-ok" class="btn" type="button">여기에 등록</button>
+</div>
+
+<dialog id="sheet" class="sheet" aria-labelledby="sheet-title">
+  <form id="stand-form" novalidate>
+    <h2 id="sheet-title">노점 정보</h2>
+
+    <div class="field">
+      <label for="f-name">이름 <span class="hint">(선택)</span></label>
+      <input id="f-name" name="name" type="text" maxlength="30" placeholder="예: 역 앞 할머니 붕어빵" autocomplete="off">
+    </div>
+
+    <fieldset>
+      <legend>메뉴</legend>
+      <div class="chips">
+        <label><input type="checkbox" name="menus" value="팥" checked><span>팥</span></label>
+        <label><input type="checkbox" name="menus" value="슈크림"><span>슈크림</span></label>
+        <label><input type="checkbox" name="menus" value="피자"><span>피자</span></label>
+        <label><input type="checkbox" name="menus" value="고구마"><span>고구마</span></label>
+        <label><input type="checkbox" name="menus" value="초코"><span>초코</span></label>
+      </div>
+    </fieldset>
+
+    <div class="field">
+      <label for="f-price">가격 <span class="hint">(1개 기준, 원)</span></label>
+      <input id="f-price" name="price" type="number" inputmode="numeric" min="0" max="100000" step="100" placeholder="1000">
+    </div>
+
+    <div class="field">
+      <label for="f-hours">영업 시간 <span class="hint">(선택)</span></label>
+      <input id="f-hours" name="hours" type="text" maxlength="50" placeholder="예: 평일 오후 3시~9시" autocomplete="off">
+    </div>
+
+    <fieldset>
+      <legend>결제 수단</legend>
+      <div class="chips">
+        <label><input type="checkbox" name="payment" value="현금" checked><span>현금</span></label>
+        <label><input type="checkbox" name="payment" value="계좌이체"><span>계좌이체</span></label>
+        <label><input type="checkbox" name="payment" value="카드"><span>카드</span></label>
+      </div>
+    </fieldset>
+
+    <p id="form-error" class="error" role="alert" hidden></p>
+    <div class="actions">
+      <button class="btn ghost" type="button" id="sheet-cancel">취소</button>
+      <button class="btn" type="submit" id="sheet-submit">등록하기</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="detail" class="sheet" aria-labelledby="d-name">
+  <div class="head">
+    <h2 id="d-name"></h2>
+    <button class="close" type="button" id="d-close" aria-label="닫기">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <p id="d-status" class="hint"></p>
+  <dl id="d-info"></dl>
+  <p id="d-error" class="error" role="alert" hidden></p>
+  <div class="actions">
+    <button class="btn ghost" type="button" data-report="gone">없어졌어요</button>
+    <button class="btn" type="button" data-report="exists">아직 있어요</button>
+  </div>
+</dialog>
+
+<!-- 네이버 클라우드 콘솔에서 발급받은 Client ID로 교체 -->
+<script src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=7u2zb60bs9"></script>
+<script>
+  const SEOUL_CITY_HALL = new naver.maps.LatLng(37.5666, 126.9784);
+  const map = new naver.maps.Map('map', { center: SEOUL_CITY_HALL, zoom: 16 });
+  const btn = document.getElementById('locate');
+  const toast = document.getElementById('toast');
+  let me = null;
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.hidden = false;
+    clearTimeout(showToast.t);
+    showToast.t = setTimeout(() => (toast.hidden = true), 3000);
+  }
+
+  function locate() {
+    if (!navigator.geolocation) return showToast('이 브라우저는 위치 기능을 지원하지 않아요');
+    btn.setAttribute('aria-busy', 'true');
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        btn.removeAttribute('aria-busy');
+        const pos = new naver.maps.LatLng(coords.latitude, coords.longitude);
+        if (me) me.setPosition(pos);
+        else me = new naver.maps.Marker({
+          position: pos, map,
+          icon: { content: '<div style="width:16px;height:16px;border-radius:50%;background:#2563EB;border:3px solid #fff;box-shadow:0 0 0 2px rgb(37 99 235/.3)"></div>', anchor: new naver.maps.Point(11, 11) },
+        });
+        map.panTo(pos);
+      },
+      (err) => {
+        btn.removeAttribute('aria-busy');
+        showToast(err.code === err.PERMISSION_DENIED ? '위치 권한을 허용해 주세요' : '위치를 가져오지 못했어요');
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
+
+  // Supabase: Project Settings → API. anon key는 공개용 키 (보안은 schema.sql의 RLS가 담당)
+  const SUPABASE_URL = 'https://odzuvzrbnficnclkilyf.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_YDlrn2rvb8mvjZjpKoD87Q_1uAciS7T';
+
+  function api(path, init = {}) {
+    return fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+      ...init,
+      headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json', ...init.headers },
+    }).then(async (res) => {
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || res.statusText);
+      return res.status === 204 ? null : res.json();
+    });
+  }
+
+  const PIN = (gone) => `<svg width="36" height="44" viewBox="0 0 36 44" style="opacity:${gone ? .4 : 1}" aria-hidden="true">
+    <path d="M18 43S3 27 3 17a15 15 0 0 1 30 0c0 10-15 26-15 26z" fill="#B45309" stroke="#fff" stroke-width="2"/>
+    <ellipse cx="17" cy="17" rx="8" ry="5" fill="#FCD34D"/><path d="M25 17l4-4v8z" fill="#FCD34D"/><circle cx="13" cy="16" r="1.2" fill="#78350F"/></svg>`;
+  const COLS = 'id,lat,lng,name,menus,price,hours,payment,last_report,last_report_at';
+  const stands = new Map(); // id → { data, marker }
+
+  function upsertStand(s) {
+    const icon = { content: PIN(s.last_report === 'gone'), anchor: new naver.maps.Point(18, 43) };
+    const cur = stands.get(s.id);
+    if (cur) {
+      if (cur.data.last_report !== s.last_report) cur.marker.setIcon(icon);
+      cur.data = s;
+      return;
+    }
+    const marker = new naver.maps.Marker({ position: new naver.maps.LatLng(s.lat, s.lng), map, title: s.name || '붕어빵 노점', icon });
+    naver.maps.Event.addListener(marker, 'click', () => openDetail(s.id));
+    stands.set(s.id, { data: s, marker });
+  }
+
+  // ponytail: 한 번 불러온 핀은 지우지 않음. 노점이 수천 개가 되면 화면 밖 핀 제거 + 클러스터링
+  async function loadStands() {
+    const b = map.getBounds();
+    const q = `select=${COLS}&lat=gte.${b.getMin().y}&lat=lte.${b.getMax().y}&lng=gte.${b.getMin().x}&lng=lte.${b.getMax().x}&limit=500`;
+    try {
+      (await api(`stands?${q}`)).forEach(upsertStand);
+    } catch (e) {
+      showToast('노점을 불러오지 못했어요');
+      console.error(e);
+    }
+  }
+
+  // 노점 등록: 버튼 → 위치 고르기 → 정보 입력
+  const $ = (id) => document.getElementById(id);
+  const form = $('stand-form'), sheet = $('sheet'), formError = $('form-error'), submitBtn = $('sheet-submit');
+  let picked = null;
+
+  function setPicking(on) {
+    $('add').hidden = on;
+    $('pickbar').hidden = !on;
+    $('crosshair').hidden = !on;
+    if (on) showToast('지도를 움직여 핀을 노점 위치에 맞춰 주세요');
+  }
+  $('add').addEventListener('click', () => setPicking(true));
+  $('pick-cancel').addEventListener('click', () => setPicking(false));
+  $('pick-ok').addEventListener('click', () => {
+    picked = map.getCenter();
+    setPicking(false);
+    formError.hidden = true;
+    sheet.showModal();
+  });
+  $('sheet-cancel').addEventListener('click', () => sheet.close());
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const price = fd.get('price');
+    const body = {
+      lat: picked.y, lng: picked.x,
+      name: fd.get('name').trim() || null,
+      menus: fd.getAll('menus'),
+      price: price === '' ? null : Number(price),
+      hours: fd.get('hours').trim() || null,
+      payment: fd.getAll('payment'),
+    };
+    const err = !body.menus.length ? '메뉴를 하나 이상 골라 주세요'
+      : body.price !== null && !(body.price >= 0 && body.price <= 100000) ? '가격은 0~100,000원 사이로 적어 주세요'
+      : '';
+    if (err) { formError.textContent = err; formError.hidden = false; return; }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = '등록 중...';
+    try {
+      const [s] = await api(`stands?select=${COLS}`, {
+        method: 'POST', body: JSON.stringify(body), headers: { Prefer: 'return=representation' },
+      });
+      sheet.close();
+      form.reset();
+      upsertStand(s);
+      map.panTo(new naver.maps.LatLng(s.lat, s.lng));
+      openDetail(s.id); // 방금 등록한 노점을 바로 보여 줘서 등록된 걸 확실히 알게 함
+      showToast('등록했어요! 고마워요');
+    } catch (e) {
+      formError.textContent = e.message.includes('5건') ? e.message
+        : e.message.includes('check constraint') ? '입력한 값을 다시 확인해 주세요'
+        : '등록하지 못했어요. 잠시 후 다시 시도해 주세요';
+      formError.hidden = false;
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '등록하기';
+    }
+  });
+
+  // 노점 상세 + 제보
+  const detail = $('detail'), dError = $('d-error');
+  let openId = null;
+
+  function timeAgo(iso) {
+    const min = Math.floor((Date.now() - new Date(iso)) / 60000);
+    return min < 1 ? '방금' : min < 60 ? `${min}분 전` : min < 1440 ? `${Math.floor(min / 60)}시간 전` : `${Math.floor(min / 1440)}일 전`;
+  }
+
+  function renderDetail() {
+    const s = stands.get(openId).data;
+    $('d-name').textContent = s.name || '붕어빵 노점';
+    const status = $('d-status');
+    status.textContent = !s.last_report ? '아직 제보가 없어요'
+      : `${timeAgo(s.last_report_at)} "${s.last_report === 'gone' ? '없어졌어요' : '아직 있어요'}" 제보`;
+    status.className = 'hint' + (s.last_report === 'gone' ? ' gone' : '');
+    const rows = [
+      ['메뉴', s.menus.join(', ')],
+      ['가격', s.price == null ? '' : `${s.price.toLocaleString()}원`],
+      ['영업 시간', s.hours],
+      ['결제', s.payment.join(', ')],
+    ].filter(([, v]) => v);
+    $('d-info').replaceChildren(...rows.flatMap(([k, v]) => {
+      const dt = document.createElement('dt'), dd = document.createElement('dd');
+      dt.textContent = k; dd.textContent = v;
+      return [dt, dd];
+    }));
+  }
+
+  function openDetail(id) {
+    openId = id;
+    dError.hidden = true;
+    renderDetail();
+    if (!detail.open) detail.showModal();
+  }
+
+  $('d-close').addEventListener('click', () => detail.close());
+  for (const d of [sheet, detail]) d.addEventListener('click', (e) => e.target === d && d.close()); // 바깥 누르면 닫기
+
+  detail.querySelectorAll('[data-report]').forEach((b) => b.addEventListener('click', async () => {
+    const type = b.dataset.report;
+    const btns = detail.querySelectorAll('[data-report]');
+    btns.forEach((x) => (x.disabled = true)); // 두 버튼 연타 방지
+    try {
+      await api('reports', { method: 'POST', body: JSON.stringify({ stand_id: openId, type }) });
+      upsertStand({ ...stands.get(openId).data, last_report: type, last_report_at: new Date().toISOString() });
+      renderDetail();
+      detail.close();
+      showToast('제보 고마워요!');
+    } catch (e) {
+      dError.textContent = e.message.includes('duplicate') ? '이 노점은 오늘 이미 제보했어요' : '제보하지 못했어요. 잠시 후 다시 시도해 주세요';
+      dError.hidden = false;
+    } finally {
+      btns.forEach((x) => (x.disabled = false));
+    }
+  }));
+
+  naver.maps.Event.addListener(map, 'idle', loadStands); // 지도 이동·확대가 끝날 때마다
+  btn.addEventListener('click', locate);
+  locate();
+  loadStands();
+</script>
+</body>
+</html>

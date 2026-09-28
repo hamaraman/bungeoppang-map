@@ -233,17 +233,53 @@
       cur.data = s;
       return;
     }
-    const marker = new naver.maps.Marker({ position: new naver.maps.LatLng(s.lat, s.lng), map, title: s.name || '붕어빵 노점', icon });
+    const marker = new naver.maps.Marker({ position: new naver.maps.LatLng(s.lat, s.lng), title: s.name || '붕어빵 노점', icon });
     naver.maps.Event.addListener(marker, 'click', () => openDetail(s.id));
     stands.set(s.id, { data: s, marker });
   }
 
-  // ponytail: 한 번 불러온 핀은 지우지 않음. 노점이 수천 개가 되면 화면 밖 핀 제거 + 클러스터링
+  // 클러스터링: 화면에서 60px 격자 안에 모인 핀을 숫자 원 하나로 묶음. 많이 확대하면 전부 개별 핀
+  const CLUSTER_PX = 60, CLUSTER_MAX_ZOOM = 17;
+  let clusters = [];
+  const BUBBLE = (n) => {
+    const size = n < 10 ? 40 : n < 100 ? 48 : 56;
+    return { anchor: new naver.maps.Point(size / 2, size / 2), content: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:#B45309;color:#fff;border:3px solid #fff;
+      box-shadow:0 2px 6px rgb(0 0 0/.3);display:grid;place-items:center;font:700 16px system-ui;box-sizing:border-box;cursor:pointer">${n}</div>` };
+  };
+
+  function render() {
+    clusters.forEach((c) => c.setMap(null));
+    clusters = [];
+    const zoom = map.getZoom(), proj = map.getProjection(), cells = new Map();
+    for (const { marker } of stands.values()) {
+      if (zoom > CLUSTER_MAX_ZOOM) { marker.setMap(map); continue; }
+      const p = proj.fromCoordToOffset(marker.getPosition());
+      const key = `${Math.floor(p.x / CLUSTER_PX)},${Math.floor(p.y / CLUSTER_PX)}`;
+      if (!cells.has(key)) cells.set(key, []);
+      cells.get(key).push(marker);
+    }
+    for (const ms of cells.values()) {
+      if (ms.length === 1) { ms[0].setMap(map); continue; }
+      ms.forEach((m) => m.setMap(null));
+      const avg = (f) => ms.reduce((sum, m) => sum + f(m.getPosition()), 0) / ms.length;
+      const position = new naver.maps.LatLng(avg((p) => p.lat()), avg((p) => p.lng()));
+      const c = new naver.maps.Marker({
+        position, map, title: `노점 ${ms.length}곳`, zIndex: 100,
+        icon: BUBBLE(ms.length),
+      });
+      naver.maps.Event.addListener(c, 'click', () => map.morph(position, Math.min(zoom + 2, CLUSTER_MAX_ZOOM + 1)));
+      clusters.push(c);
+    }
+  }
+
+  // ponytail: 한 번 불러온 핀은 지우지 않고, 화면당 500개까지만 불러옴(넓게 축소하면 숫자가 실제보다 작을 수 있음).
+  // 노점이 수천 개가 되면 서버에서 지역별 개수를 세는 RPC로 바꿀 것
   async function loadStands() {
     const b = map.getBounds();
     const q = `select=${COLS}&lat=gte.${b.getMin().y}&lat=lte.${b.getMax().y}&lng=gte.${b.getMin().x}&lng=lte.${b.getMax().x}&limit=500`;
     try {
       (await api(`stands?${q}`)).forEach(upsertStand);
+      render();
     } catch (e) {
       showToast('노점을 불러오지 못했어요');
       console.error(e);
@@ -297,6 +333,7 @@
       sheet.close();
       form.reset();
       upsertStand(s);
+      render();
       map.panTo(new naver.maps.LatLng(s.lat, s.lng));
       openDetail(s.id); // 방금 등록한 노점을 바로 보여 줘서 등록된 걸 확실히 알게 함
       showToast('등록했어요! 고마워요');
